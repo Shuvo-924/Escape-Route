@@ -6,12 +6,10 @@
 #include<SFML/Audio.hpp>
 #include<SFML/Window.hpp>
 #include<vector>
-#include<queue>
 #include<iostream>
 #include<algorithm>
 #include<ctime>
-#include<cmath>
-#include<list>
+#include<fstream>
 
 using namespace sf;
 using namespace std;
@@ -20,12 +18,19 @@ class Game
 {
 
 private:
-	RenderWindow* window;
-	Event ev;
-	VideoMode desktopMode;
+	RenderWindow* window;//For Game Window
+	View view;//For Viewing a certain portion of the Window
+	Event ev;//For Event handling such as Keypress,Cursor,Mouse-clicks etc.
+	VideoMode desktopMode;//For Window size
 
-	void initVar();
-	void initWin();
+	Texture playerCar,policeCar, bg, dot;//Image data for Objects to use on screen
+	Sprite plc, plr, rd, mark;//Objects
+	float speed = 0;
+	const double pi = 3.14159265358979323846;
+	vector<Vector2f> points;//Set of (x,y) coordinates for drawing a Path
+
+	void initVar();//Function to set Initial values of Variables
+	void initWin();//Function to set Initial Window
 
 public:
 	Game();
