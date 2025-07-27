@@ -1,4 +1,4 @@
-//Uncomment line 264 in Game.cpp to check all paths from one node to another
+//Uncomment line 268 in Game.cpp to check all paths from one node to another
 
 #ifndef GAME_H
 #define GAME_H
