@@ -1,5 +1,3 @@
-//Uncomment line 268 in Game.cpp to check all paths from one node to another
-
 #ifndef GAME_H
 #define GAME_H
 
@@ -36,12 +34,11 @@ private:
 	Event ev;//For Event handling such as Keypress,Cursor,Mouse-clicks etc.
 	VideoMode desktopMode;//For Window size
 
-	Texture playerCar,policeCar, bg, dot;//Image data for Objects to use on screen
-	Sprite plc, plr, rd, mark;//Objects
+	Texture playerCar,policeCar, bg, dot, ar;//Image data for Objects to use on screen
+	Sprite plc, plr, rd, mark, arw;//Objects
 	float speed = 0, rt = 0;
 	const double pi = 3.14159265358979323846;
 	float zoom = 1.f;
-	int cur = 0, var = 0;
 
 	unordered_set<Vector2f, Vector2fHash> bluePath; //Set of (x,y) coordinates for drawing a Path (For regular roads and overpasses)
 	unordered_set<Vector2f, Vector2fHash> greenPath; // For underpasses
@@ -49,6 +46,17 @@ private:
 	unordered_set<Vector2f, Vector2fHash> visited; //To check visited nodes
 	vector<Vector2f> endpoints; //Starting position or Destination points
 	vector<Vector2f> shortestPath; //To store the Shortest Path data
+
+	vector<Sprite> pathArrowSprites; // Stores the visible arrow sprites.
+	Clock pathAnimTimer; // Times the interval between arrows.
+	Time pathAnimInterval = seconds(0.012f); // The delay between each arrow. Adjust for speed.
+	size_t pathAnimationIndex; // Tracks which point in the path we're animating next.
+	bool isAnimatingPath; // Flag to control if the animation is running.
+
+	Clock pathCycleTimer; // Times the delay between showing different paths.
+	Time pathCycleDelay = sf::seconds(1.0f); // Delay after one path finishes before the next one starts.
+	int pathCycleI; // Current start index for cycling
+	int pathCycleJ; // Current end index for cycling
 
 	void initVar();//Function to set Initial values of Variables
 	void initWin();//Function to set Initial Window
