@@ -1,7 +1,3 @@
-//Uncomment line 268 to check all paths from one node to another
-
-
-
 #include "Game.h"
 
 //Private functions
@@ -14,6 +10,7 @@ void Game::initVar()
 	this->rd.setScale(0.1171875, 0.1171620742);
 	this->plr.setTexture(playerCar);
 	this->plr.setScale(0.0045,0.0045);
+	ar.loadFromFile("Arrow.png");
 	ifstream rasta("path.txt");
 	float x, y;
 	while (rasta >> x >> y) {
@@ -32,6 +29,11 @@ void Game::initVar()
 	start.close();
 	const string graphCacheFile = "roadGraph.cache";
 	loadRoadGraph(graphCacheFile);
+	isAnimatingPath = false;      // We are not animating initially.
+	pathAnimationIndex = 0;       // Start at the beginning of the path.
+	pathCycleI = 0;               // Start the cycle at node 0...
+	pathCycleJ = 1;               // ...to node 1.
+	pathCycleTimer.restart();
 	/*this->plr.setPosition(0, 398);
 	this->plr.setRotation(0);
 	FloatRect bounds = this->plr.getGlobalBounds();
@@ -265,14 +267,56 @@ void Game::update()
 	//A red dot marking the position of the Player in the MiniMap
 	mark.setPosition(plr.getPosition().x + (plr.getGlobalBounds().width / 2) * sinf(plr.getRotation() * pi / 180.f), plr.getPosition().y - (plr.getGlobalBounds().height / 2) * cosf(plr.getRotation() * pi / 180.f));
 	mark.setRotation(plr.getRotation());
-	/*for (int i = 0;i < 21;i++) { //To check all the paths 
-		for (int j = 0;j < 21;j++) {
-			if (i == j) continue;
-			sleep(milliseconds(800));
-			findPath(i, j);
-			render();
+	if (isAnimatingPath) {
+		if (pathAnimTimer.getElapsedTime() > pathAnimInterval && pathAnimationIndex < shortestPath.size()) {
+			if (pathAnimationIndex < shortestPath.size() - 12) {
+				Sprite newArrow;
+				newArrow.setTexture(ar); 
+				newArrow.setScale(0.03, 0.03); 
+				newArrow.setOrigin(ar.getSize().x / 2.f, ar.getSize().y / 2.f); 
+
+				const Vector2f& currentPoint = shortestPath[pathAnimationIndex];
+				const Vector2f& nextPoint = shortestPath[pathAnimationIndex + 12];
+
+				newArrow.setPosition(currentPoint);
+				Vector2f direction = nextPoint - currentPoint;
+				float angle = atan2(direction.y, direction.x) * 180.f / pi;
+				newArrow.setRotation(angle);
+
+				pathArrowSprites.push_back(newArrow);
+			}
+			pathAnimationIndex+=12;
+			pathAnimTimer.restart();
 		}
-	}*/
+
+		if (pathAnimationIndex >= shortestPath.size()) {
+			isAnimatingPath = false;
+			pathCycleTimer.restart();
+		}
+
+	}
+	else {
+		if (pathCycleTimer.getElapsedTime() > pathCycleDelay) {
+			pathCycleJ++;
+			if (pathCycleJ >= endpoints.size()) {
+				pathCycleI++;
+				pathCycleJ = 0;
+			}
+			if (pathCycleI >= endpoints.size()) {
+				pathCycleI = 0;
+			}
+			if (pathCycleI == pathCycleJ) {
+				pathCycleJ++;
+				if (pathCycleJ >= endpoints.size()) {
+					pathCycleI++;
+					pathCycleJ = 0;
+				}
+			}
+			if (pathCycleI < endpoints.size()) {
+				findPath(pathCycleI, pathCycleJ);
+			}
+		}
+	}
 }
 
 void Game::findPath(int x, int y)
@@ -281,6 +325,15 @@ void Game::findPath(int x, int y)
 	Vector2f endNode = endpoints[y];
 
 	this->shortestPath = findShortestPath(startNode, endNode);
+	if (!shortestPath.empty()) {
+		isAnimatingPath = true;       // Turn the animation on.
+		pathAnimationIndex = 0;       // Reset to the start of the new path.
+		pathArrowSprites.clear();     // Clear out the arrows from the previous path.
+		pathAnimTimer.restart();      // Restart the timer for placing the first arrow.
+	}
+	else {
+		isAnimatingPath = false;      // If no path, ensure animation is off.
+	}
 }
 
 vector<Vector2f> Game::findShortestPath(const Vector2f& start, const Vector2f& end)
@@ -335,14 +388,8 @@ void Game::render()
 	this->window->clear(Color::Green);
 	//this->window->setView(view);
 	this->window->draw(rd);
-	if (shortestPath.size() > 1) {
-		for (size_t i = 0; i < shortestPath.size() - 1; ++i) {
-			Vertex line[] = {
-				Vertex(shortestPath[i], Color::Yellow),
-				Vertex(shortestPath[i + 1], Color::Yellow)
-			};
-			window->draw(line, 2, sf::Lines);
-		}
+	for (const auto& arrowSprite : pathArrowSprites) {
+		this->window->draw(arrowSprite);
 	}
 	this->window->display();
 }
