@@ -7,8 +7,13 @@
 #include<SFML/Window.hpp>
 #include<SFML/OpenGL.hpp>
 #include<vector>
+#include<string>
+#include<iomanip>
+#include<thread>
+#include<mutex>
 #include<set>
 #include<iostream>
+#include<list>
 #include<algorithm>
 #include<ctime>
 #include<fstream>
@@ -16,18 +21,17 @@
 #include<queue>
 #include<unordered_map>
 #include<unordered_set>
+#include "CustomFunctions.h"
 #include "TileMap.h"
+#include "SpawnCars.h"
+#include "SignalControl.h"
+#include "MiniMap.h"
 
 using namespace sf;
 using namespace std;
 
-struct Vector2fHash { //Custom Hash function to use Vector2f data type in map and set
-	size_t operator()(const Vector2f& v) const {
-		return hash<float>()(v.x) ^ (hash<float>()(v.y) << 1);
-	}
-};
-
 enum GameState {
+	LOADING,
 	PROMPT,
 	FADING_OUT,
 	FADING_IN,
@@ -44,15 +48,34 @@ private:
 	View view; //For Viewing a certain portion of the Window
 	Event ev; //For Event handling such as Keypress,Cursor,Mouse-clicks etc.
 	VideoMode desktopMode; //For Window size
+	Image icon; //Game icon
 	TileMap* map; //Map visible around the Player Car
+	Minimap minimap;
+	bool expand = false;
+	Texture cancel;
+	Sprite cancelbtn;
+	Cars RandomCars; //Random cars in the RoadMap
+	Clock spawnDelay;
+	Signal signals;
+	int state = 1;
 
-	//To convert screen Coordinates to High resolution Image Coordinates
-	const float RENDER_WORLD_SCALE_X = 29335.0f / 1920.0f;
-	const float RENDER_WORLD_SCALE_Y = 16504.0f / 1080.0f;
+	vector<Texture> loadingFrames; // Will hold all the video frame textures
+	Sprite loadingSprite;               // The sprite to display the current frame
+	unsigned int currentFrameIndex;
+	Clock frameClock;                   // Times the switch between frames
+	const Time timePerFrame = seconds(1.0f / 30.0f); // For a 30 FPS video
+	int ellipsisCount;
+	thread loadingThread;
+	mutex loadingMutex; // Protects shared data
+	bool isLoadingFinished = false;
 
-	Texture playerCar,policeCar, bg, dot, ar;//Image data for Objects to use on screen
-	Sprite plc, plr, rd, mark, arw;//Objects
-	double speed = 0, rt = 0;
+	Text loadingEllipsisText;           // The "Loading..." text
+	Clock ellipsisClock;                // Times the change of the ellipsis
+	const Time timePerEllipsis = seconds(0.5f);
+
+	Texture playerCar,policeCar, bg, dot, ar, fadeImg;//Image data for Objects to use on screen
+	Sprite plc, plr, rd, mark, arw, fadeDraw;//Objects
+	double speed = 0;
 	const double pi = 3.14159265358979323846;
 
 	unordered_set<Vector2f, Vector2fHash> bluePath; //Set of (x,y) coordinates for drawing a Path (For regular roads and overpasses)
@@ -64,11 +87,14 @@ private:
 	const int TILE_SIZE = 512;
 	const int MAP_WIDTH_TILES = 58;
 	const int MAP_HEIGHT_TILES = 33;
+	//To convert screen Coordinates to High resolution Image Coordinates
+    double RENDER_WORLD_SCALE_X;
+	double RENDER_WORLD_SCALE_Y;
 
-	GameState currentState;
+	GameState currentState; //Current Gamestate
 	RectangleShape fadeShape; //For Transitioning into and from Black screen
 	Clock fadeClock; //To keep track of time and trigger Transition 
-	const Time fadeDuration = seconds(1.25f); //Duration of fade
+	const Time fadeDuration = seconds(2.f); //Duration of fade
 
 	Font disp;
 	int start, end;
@@ -80,13 +106,16 @@ private:
 	size_t pathAnimationIndex; // Tracks which point in the path we're animating next.
 	bool isAnimatingPath; // Flag to control if the animation is running.
 
+	void initMinimal();
+	void loadAssetsAndData();
+	void updateAndDrawLoadingAnimation();
 	void reset(); //Function to restart the Game
-	void initVar(); //Function to set Initial values of Variables
-	void initWin(); //Function to set Initial Window
 	/*void buildComplexRoadGraph();
 	void addBridgeEdges();
 	void saveRoadGraph(const string& filename);*/
 	bool loadRoadGraph(const string& filename); //Load Graph data from file instead of Calculating
+	void prompt();
+	void playing();
 
 public:
 	Game();
@@ -94,6 +123,7 @@ public:
 
 	const bool getWinOpen() const;
 
+	
 	void pollEvents();
 	void update();
 	void findPath(int x, int y);
