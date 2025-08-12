@@ -1,4 +1,121 @@
 #include "Game.h"
+#include "SignalControl.h"
+
+void Game::initMinimal()
+{
+	window = nullptr;
+	map = nullptr;
+	desktopMode = VideoMode::getDesktopMode();
+	window = new RenderWindow(this->desktopMode, "Escape Route", Style::Close | Style::Titlebar);
+	window->setPosition(Vector2i(-15, 0));
+	icon.loadFromFile("Icon.png");
+	window->setIcon(icon.getSize().x, icon.getSize().y, icon.getPixelsPtr());
+	disp.loadFromFile("Gravity.ttf");
+	RENDER_WORLD_SCALE_X = 29335.f / 1920.f;
+	RENDER_WORLD_SCALE_Y = 16504.f / 1080.f;
+}
+
+void Game::loadAssetsAndData()
+{
+	loadingEllipsisText.setFont(disp);
+	loadingEllipsisText.setCharacterSize(40);
+	loadingEllipsisText.setFillColor(Color::White);
+	loadingEllipsisText.setPosition(50, desktopMode.height - 100);
+	ellipsisCount = 0;
+
+	int numFrames = 240;
+	vector<Texture> localFrames; // Create a temporary, local vector
+	localFrames.resize(numFrames);
+	for (int i = 0; i < numFrames; ++i) {
+		stringstream ss;
+		ss << "Frames/frame_" << setw(4) << setfill('0') << (i + 1) << ".png";
+		if (!localFrames[i].loadFromFile(ss.str())) {
+			cout << "Error loading frame: " << ss.str() << endl;
+		}
+	}
+
+	{
+		lock_guard<mutex> lock(loadingMutex);
+		loadingFrames = move(localFrames); // Efficiently move the data
+
+		if (!loadingFrames.empty() && loadingFrames[0].getSize().x > 0) {
+			currentFrameIndex = 0;
+			loadingSprite.setTexture(loadingFrames[currentFrameIndex]);
+			float scaleX = (float)desktopMode.width / loadingSprite.getLocalBounds().width;
+			float scaleY = (float)desktopMode.height / loadingSprite.getLocalBounds().height;
+			float finalScale = min(scaleX, scaleY);
+			loadingSprite.setScale(finalScale, finalScale);
+			loadingSprite.setOrigin(loadingSprite.getLocalBounds().width / 2.f, loadingSprite.getLocalBounds().height / 2.f);
+			loadingSprite.setPosition(desktopMode.width / 2.f, desktopMode.height / 2.f);
+		}
+	}
+	loadRoadGraph("roadGraph.cache");
+
+	if (!endpoints.empty()) {
+		Vector2f initialNodeData = endpoints[0];
+		plr.setPosition(initialNodeData.x * RENDER_WORLD_SCALE_X, initialNodeData.y * RENDER_WORLD_SCALE_Y);
+		plr.setRotation(0);
+	}
+
+	map = new TileMap("map_tiles", TILE_SIZE, MAP_WIDTH_TILES, MAP_HEIGHT_TILES);
+	start = -1; end = -1; isAnimatingPath = false; pathAnimationIndex = 0; speed = 0.f;
+
+	bg.loadFromFile("Routes_Map1.png");
+	playerCar.loadFromFile("Car(P).png");
+	ar.loadFromFile("Arrow.png");
+	fadeImg.create(1920, 1080);
+
+	rd.setTexture(bg); rd.setScale(1920.0f / 16384.0f, 1080.0f / 9218.0f);
+	minimap.minimapBackgroundTexture = bg;
+	minimap.minimapBackgroundSprite.setTexture(minimap.minimapBackgroundTexture);
+	cancel.loadFromFile("Cancel.png");
+	cancelbtn.setTexture(cancel);
+	cancelbtn.setScale(0.05, 0.05);
+	cancelbtn.setPosition(1920.f - cancelbtn.getGlobalBounds().width * 1.5f, cancelbtn.getGlobalBounds().height / 2.f);
+	plr.setTexture(playerCar); plr.setScale(0.04, 0.04);
+	FloatRect bounds = plr.getLocalBounds();
+	plr.setOrigin(bounds.width / 2.f, bounds.height / 2.f);
+	RandomCars.Spawn();
+	spawnDelay.restart();
+
+	float x, y;
+	ifstream startFile("Nodes.txt"); while (startFile >> x >> y) { endpoints.push_back({ x, y }); } startFile.close();
+
+	fadeShape.setSize(Vector2f(static_cast<float>(desktopMode.width), static_cast<float>(desktopMode.height)));
+	fadeShape.setFillColor(Color(0, 0, 0, 0));
+
+	{
+		lock_guard<mutex> lock(loadingMutex);
+		isLoadingFinished = true;
+	}
+}
+
+void Game::updateAndDrawLoadingAnimation()
+{
+	if (ellipsisClock.getElapsedTime() > timePerEllipsis) {
+		ellipsisCount = (ellipsisCount + 1) % 4;
+		string base = "Loading";
+		for (int i = 0; i < ellipsisCount; ++i) {
+			base += ".";
+		}
+		loadingEllipsisText.setString(base);
+		ellipsisClock.restart();
+	}
+	window->clear(Color::Black);
+
+	if (!loadingFrames.empty() && frameClock.getElapsedTime() > timePerFrame) {
+		currentFrameIndex = (currentFrameIndex + 1) % loadingFrames.size();
+		loadingSprite.setTexture(loadingFrames[currentFrameIndex], true);
+		frameClock.restart();
+	}
+
+	if (loadingSprite.getTexture() != nullptr) {
+		window->draw(loadingSprite);
+	}
+
+	window->draw(loadingEllipsisText);
+	window->display();
+}
 
 //Private functions
 void Game::reset()
@@ -9,61 +126,10 @@ void Game::reset()
 	}
 }
 
-void Game::initVar()
-{
-	currentState = PROMPT;
-	this->window = nullptr;
-	this->disp.loadFromFile("Gravity.ttf");
-	this->start = -1;
-	this->end = -1;
-	this->bg.loadFromFile("Routes_Map1.png");
-	this->rd.setTexture(bg);
-	this->rd.setScale(0.1171875, 0.1171875);
-	this->playerCar.loadFromFile("Car(P).png");
-	this->plr.setTexture(playerCar);
-	this->plr.setScale(0.04,0.04);
-	ar.loadFromFile("Arrow.png");
-	ifstream rasta("path.txt");
-	float x, y;
-	while (rasta >> x >> y) {
-		bluePath.insert({ x, y });
-	}
-	rasta.close();
-	rasta.open("Under.txt");
-	while (rasta >> x >> y) {
-		greenPath.insert({ x, y });
-	}
-	rasta.close();
-	ifstream start("Nodes.txt");
-	while (start >> x >> y) {
-		endpoints.push_back({ x, y });
-	}
-	start.close();
-	const string graphCacheFile = "roadGraph.cache";
-	loadRoadGraph(graphCacheFile);
-	isAnimatingPath = false;
-	pathAnimationIndex = 0;
-	this->plr.setPosition(300, 398);
-	view.setCenter(plr.getPosition());
-	this->plr.setRotation(0);
-	FloatRect bounds = this->plr.getGlobalBounds();
-	this->plr.setOrigin(this->plr.getPosition().x + bounds.width / 2, this->plr.getPosition().y + bounds.height / 2);
-}
-
-void Game::initWin()
-{
-	this->desktopMode = VideoMode::getDesktopMode();
-	this->window = new RenderWindow(this->desktopMode, "Escape Route", Style::Close | Style::Titlebar);
-	this->map = new TileMap("map_tiles", TILE_SIZE, MAP_WIDTH_TILES, MAP_HEIGHT_TILES);
-	fadeShape.setSize(Vector2f(this->desktopMode.width, this->desktopMode.height));
-	fadeShape.setFillColor(Color(0, 0, 0, 0));
-}
-
 bool Game::loadRoadGraph(const string& filename)
 {
 	ifstream inFile(filename);
 	if (!inFile.is_open()) {
-		// This is not an error, it just means the cache doesn't exist yet.
 		return false;
 	}
 
@@ -95,10 +161,93 @@ bool Game::loadRoadGraph(const string& filename)
 	return !roadGraph.empty();
 }
 
+void Game::prompt()
+{
+	this->window->clear(Color::Green);
+	this->window->draw(rd);
+	signals.drawsignals(*window, 1, 1);
+	signals.signalctrl(*window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y);
+	Text choose, st, en;
+	choose.setString("Choose The Starting point ->");
+	choose.setFont(disp);
+	choose.setPosition(window->getSize().x / 2.f - 25 * (choose.getLetterSpacing() + choose.getString().getSize()) / 2, 100);
+	choose.setOutlineColor(Color::Black);
+	choose.setOutlineThickness(1.f);
+	choose.setCharacterSize(40);
+	st.setString(((start != -1) ? to_string(start) : myTextString));
+	st.setFont(disp);
+	st.setPosition(700, 200);
+	st.setOutlineColor(Color::Black);
+	st.setOutlineThickness(1.f);
+	en.setString(((start == -1) ? "" : ((end == -1) ? myTextString : to_string(end))));
+	en.setFont(disp);
+	en.setPosition(1000, 200);
+	en.setOutlineColor(Color::Black);
+	en.setOutlineThickness(1.f);
+	this->window->draw(choose);
+	this->window->draw(st);
+	this->window->draw(en);
+	if (isAnimatingPath) {
+		for (const auto& arrowSprite : pathArrowSprites) {
+			this->window->draw(arrowSprite);
+		}
+	}
+	fadeImg.update(*window);
+	fadeDraw.setTexture(fadeImg);
+}
+
+void Game::playing()
+{
+	this->window->setView(view);
+	if (this->map) {
+		this->window->draw(*map);
+	}
+	this->window->draw(this->plr);
+	RandomCars.drawCars(*window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y, plr, speed);
+	signals.drawsignals(*window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y);
+	signals.signalctrl(*window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y);
+	window->setView(minimap.minimapView);
+	window->draw(minimap.minimapBackgroundSprite);
+	window->draw(minimap.playerDotSprite);
+
+	// Draw the minimap border (using the default view)
+	window->setView(window->getDefaultView());
+	window->draw(minimap.minimapBorder);
+	if (expand) window->draw(cancelbtn);
+	fadeImg.update(*window);
+	fadeDraw.setTexture(fadeImg);
+}
+
 //Constructors & Destructors
-Game::Game() {
-	this->initVar();
-	this->initWin();
+Game::Game() : RandomCars(29335.f, 16504.f) {
+	map = nullptr;
+	window = nullptr;
+	currentState = LOADING;
+	initMinimal();
+
+	isLoadingFinished = false;
+	loadingThread = thread([this]() { this->loadAssetsAndData(); });
+
+	while (window->isOpen() && !isLoadingFinished) {
+		Event event;
+		while (window->pollEvent(event)) {
+			if (event.type == Event::Closed) {
+				window->close();
+			}
+		}
+		{
+			lock_guard<mutex> lock(loadingMutex);
+			if (isLoadingFinished) break;
+		}
+		updateAndDrawLoadingAnimation();
+	}
+
+	if (loadingThread.joinable()) {
+		loadingThread.join();
+	}
+	fadeImg.update(*window);
+	fadeDraw.setTexture(fadeImg);
+	currentState = FADING_OUT;
 }
 
 Game::~Game() {
@@ -139,9 +288,8 @@ void Game::pollEvents()
 			if (this->ev.key.code == Keyboard::R && currentState != PROMPT) {
 				reset();
 			}
-			break;
-		case Event::KeyReleased:
-			rt = 0;
+			if (this->ev.key.code == Keyboard::E)
+				cout << plr.getPosition().x / RENDER_WORLD_SCALE_X << " " << plr.getPosition().y / RENDER_WORLD_SCALE_Y << endl;
 			break;
 		case Event::TextEntered:
 			if (currentState == PROMPT) {
@@ -159,6 +307,18 @@ void Game::pollEvents()
 						myTextString.erase(myTextString.size() - 1);
 					}
 				}
+			}
+		case Event::MouseButtonPressed:
+			Vector2i mousepos = Mouse::getPosition();
+			FloatRect area(1920 * 0.75f, 1080 * 0.05f, 1920 * 0.2f,1080 * 0.2f);
+			FloatRect close(cancelbtn.getPosition().x , cancelbtn.getPosition().y, cancelbtn.getGlobalBounds().width, cancelbtn.getGlobalBounds().height);
+			if (area.contains(Vector2f(mousepos)) && !expand) {
+				expand = true;
+				minimap.expand();
+			}
+			else if (close.contains(Vector2f(mousepos))) {
+				expand = false;
+				minimap.reset();
 			}
 		}
 	}
@@ -187,7 +347,7 @@ void Game::update()
 				plr.setPosition(pathArrowSprites[0].getPosition().x * RENDER_WORLD_SCALE_X, pathArrowSprites[0].getPosition().y * RENDER_WORLD_SCALE_Y);
 				plr.setRotation(pathArrowSprites[0].getRotation());
 				plr.setPosition(plr.getPosition().x - plr.getGlobalBounds().width * 10 * cosf(plr.getRotation() * pi / 180.f), plr.getPosition().y - plr.getGlobalBounds().width * 10 * sinf(plr.getRotation() * pi / 180.f));
-				speed = 1.f;
+				speed = 2.f;
 			}
 			pathAnimationIndex += 15;
 			pathAnimTimer.restart();
@@ -197,7 +357,14 @@ void Game::update()
 			isAnimatingPath = false;
 			currentState = FADING_OUT;
 			fadeClock.restart();
+			pathAnimTimer.restart();
 		}
+	}
+
+	if (spawnDelay.getElapsedTime().asSeconds() >= 30) {
+		RandomCars.AddCars();
+		RandomCars.Spawn();
+		spawnDelay.restart();
 	}
 
 	switch (currentState)
@@ -219,19 +386,22 @@ void Game::update()
 
 		// When fully faded out...
 		if (progress >= 1.0f) {
-			// ...instantly position the camera on the player...
-			const Vector2f mapSize(29335.0f, 16504.0f);
-			view.setSize(1920, 1080);
-			Vector2f viewSize = view.getSize();
-			Vector2f desiredCenter = plr.getPosition();
-			float minX = viewSize.x / 2.0f;
-			float maxX = mapSize.x - viewSize.x / 2.0f;
-			float minY = viewSize.y / 2.0f;
-			float maxY = mapSize.y - viewSize.y / 2.0f;
-			view.setCenter(
-				clamp(desiredCenter.x, minX, maxX),
-			    clamp(desiredCenter.y, minY, maxY)
-			);
+			if (state == 1) prompt();
+			else {
+				const Vector2f mapSize(29335.0f, 16504.0f);
+				view.setSize(1920, 1080);
+				Vector2f viewSize = view.getSize();
+				Vector2f desiredCenter = plr.getPosition();
+				float minX = viewSize.x / 2.0f;
+				float maxX = mapSize.x - viewSize.x / 2.0f;
+				float minY = viewSize.y / 2.0f;
+				float maxY = mapSize.y - viewSize.y / 2.0f;
+				view.setCenter(
+					clamp(desiredCenter.x, minX, maxX),
+					clamp(desiredCenter.y, minY, maxY)
+				);
+				playing();
+			}
 			currentState = FADING_IN;
 			fadeClock.restart();
 		}
@@ -249,7 +419,8 @@ void Game::update()
 		fadeShape.setFillColor(Color(0, 0, 0, alpha));
 
 		if (progress >= 1.f) {
-			currentState = PLAYING;
+			if (state == 1) currentState = PROMPT;
+			else currentState = PLAYING;
 		}
 		break;
 	}
@@ -257,29 +428,28 @@ void Game::update()
 	{
 		float dx, dy, ang;
 		const double pi = 3.14159265358979323846;
+		/*if (pathAnimTimer.getElapsedTime().asMilliseconds() >= 720) {
+			plr.setRotation(pathArrowSprites[idx].getRotation());
+			idx++;
+			pathAnimTimer.restart();
+		}*/
 		ang = this->plr.getRotation();
 		dx = speed * cosf(ang * pi / 180.f);
 		dy = speed * sinf(ang * pi / 180.f);
 		plr.move(dx, dy);
 		if (Keyboard::isKeyPressed(Keyboard::Down)) {
-			(this->speed > 0) ? this->speed -= 0.008 : this->speed = 0;
+			(this->speed > 0) ? this->speed -= 0.01 : this->speed = 0;
 		}
 		if (Keyboard::isKeyPressed(Keyboard::Up)) {
-			if (this->speed < 2.5)
+			if (this->speed < 10)
 			this->speed += 0.0025;
-			else this->speed = 2.5;
+			else this->speed = 10;
 		}
 		if (Keyboard::isKeyPressed(Keyboard::Right)) {
-			if (rt < 0.3) {
-				rt += 0.0012;
-			}
-			plr.rotate(rt);
+			plr.rotate(speed / 9.5f);
 		}
 		if (Keyboard::isKeyPressed(Keyboard::Left)) {
-			if (rt < 0.3) {
-				rt += 0.0012;
-			}
-			plr.rotate(-rt);
+			plr.rotate(-(speed / 9.5f));
 		}
 		double fact = speed;
 		const Vector2f mapSize(29335.0f, 16504.0f);
@@ -290,19 +460,19 @@ void Game::update()
 
 		Vector2f finalCenter = desiredCenter;
 
-		float minX = viewSize.x / 2.0f;
-		float maxX = mapSize.x - viewSize.x / 2.0f;
+		float minX = viewSize.x / 2.0f + 2.f;
+		float maxX = (mapSize.x - viewSize.x / 2.0f) - 2.f;
 		finalCenter.x = max(minX, min(finalCenter.x, maxX));
 
-		float minY = viewSize.y / 2.0f;
-		float maxY = mapSize.y - viewSize.y / 2.0f;
+		float minY = viewSize.y / 2.0f + 2.f;
+		float maxY = (mapSize.y - viewSize.y / 2.0f) - 2.f;
 		finalCenter.y = max(minY, min(finalCenter.y, maxY));
 
 		view.setCenter(finalCenter);
+		minimap.setcenter(plr.getPosition().x * (16384.f / 29335.f), plr.getPosition().y * (9218.f / 16504.f));
 
 		//A red dot marking the position of the Player in the MiniMap
-		mark.setPosition(plr.getPosition().x + (plr.getGlobalBounds().width / 2) * sinf(plr.getRotation() * pi / 180.f), plr.getPosition().y - (plr.getGlobalBounds().height / 2) * cosf(plr.getRotation() * pi / 180.f));
-		mark.setRotation(plr.getRotation());
+		minimap.playerDotSprite.setPosition(plr.getPosition().x * (16384.f / 29335.f), plr.getPosition().y * (9218.f / 16504.f));
 		break;
 	}
 	case RESTARTING_FADE_OUT:
@@ -318,6 +488,7 @@ void Game::update()
 
 		// When fully black...
 		if (progress >= 1.0f) {
+			prompt();
 			currentState = RESTARTING_FADE_IN;
 			start = -1;
 			end = -1;
@@ -342,6 +513,7 @@ void Game::update()
 		fadeShape.setFillColor(Color(0, 0, 0, alpha));
 
 		if (progress >= 1.0f) {
+			window->setView(window->getDefaultView());
 			currentState = PROMPT;
 		}
 		break;
@@ -417,67 +589,17 @@ void Game::render()
 {
 	this->window->clear(Color::Green);
 	if (currentState == PROMPT) {
-		this->window->draw(rd);
-		Text choose, st, en;
-		choose.setString("Choose The Starting point ->");
-		choose.setFont(disp);
-		choose.setPosition(window->getSize().x / 2 - 25 * (choose.getLetterSpacing() + choose.getString().getSize()) / 2, 100);
-		choose.setOutlineColor(Color::Black);
-		choose.setOutlineThickness(1.f);
-		choose.setCharacterSize(40);
-		st.setString(to_string(start));
-		st.setFont(disp);
-		st.setPosition(700, 200);
-		st.setOutlineColor(Color::Black);
-		st.setOutlineThickness(1.f);
-		en.setString(to_string(end));
-		en.setFont(disp);
-		en.setPosition(1000, 200);
-		en.setOutlineColor(Color::Black);
-		en.setOutlineThickness(1.f);
-		this->window->draw(choose);
-		this->window->draw(st);
-		this->window->draw(en);
-		if (isAnimatingPath) {
-			for (const auto& arrowSprite : pathArrowSprites) {
-				this->window->draw(arrowSprite);
-			}
-		}
+		prompt();
+		state = 4;
 	}
-	else if (currentState == FADING_OUT || currentState == RESTARTING_FADE_IN) {
-		this->window->draw(rd);
-		Text choose, st, en;
-		choose.setString("Choose The Starting point ->");
-		choose.setFont(disp);
-		choose.setPosition(window->getSize().x / 2 - 30 * (choose.getLetterSpacing() + choose.getString().getSize()) / 2, 100);
-		choose.setOutlineColor(Color::Black);
-		choose.setOutlineThickness(1.f);
-		choose.setCharacterSize(40);
-		st.setString(to_string(start));
-		st.setFont(disp);
-		st.setPosition(700, 200);
-		st.setOutlineColor(Color::Black);
-		st.setOutlineThickness(1.f);
-		en.setString(to_string(end));
-		en.setFont(disp);
-		en.setPosition(1000, 200);
-		en.setOutlineColor(Color::Black);
-		en.setOutlineThickness(1.f);
-		this->window->setView(this->window->getDefaultView());
-		this->window->draw(choose);
-		this->window->draw(st);
-		this->window->draw(en);
+	else if (currentState == FADING_OUT || currentState == RESTARTING_FADE_IN || currentState == RESTARTING_FADE_OUT || currentState == FADING_IN) {
+		if (currentState == RESTARTING_FADE_OUT) playing();
+		this->window->draw(fadeDraw);
 		this->window->draw(fadeShape);
 	}
-	else if (currentState == RESTARTING_FADE_OUT || currentState == PLAYING || currentState == FADING_IN) {
-		this->window->setView(view);
-		if (this->map) {
-			this->window->draw(*map);
-		}
-		this->window->draw(this->plr);
-		if (currentState == FADING_IN || currentState == RESTARTING_FADE_OUT) {
-			this->window->draw(fadeShape);
-		}
+	else if (currentState == PLAYING) {
+		playing();
+		state = 1;
 	}
 	this->window->display();
 }
