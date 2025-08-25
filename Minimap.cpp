@@ -4,10 +4,10 @@ Minimap::Minimap()
 {
     playerDotTexture.loadFromFile("Position.png");
     playerDotSprite.setTexture(playerDotTexture);
-    playerDotSprite.setScale(0.15f, 0.15f);
+    playerDotSprite.setScale(0.025f, 0.025f);
     playerDotSprite.setOrigin(playerDotSprite.getLocalBounds().width / 2.f, playerDotSprite.getLocalBounds().height / 2.f);
 
-    minimapView.setSize(8192, 4609); // Set to a portion of your full map for a zoomed-in effect
+    minimapView.setSize(960, 590); //Set to a portion of your full map for a zoomed-in effect
     minimapView.setViewport(FloatRect(0.75f, 0.05f, 0.2f, 0.2f)); // Top-right corner
 
     // Configure minimap border
@@ -20,12 +20,14 @@ Minimap::Minimap()
 
 void Minimap::expand()
 {
+    minimapView.setSize(1920, 1080);
     minimapView.setViewport(FloatRect(0.025f, 0.025f, 0.92f, 0.92f));
     minimapBorder.setSize(Vector2f(1920 * 0.92f, 1080 * 0.92f));
     minimapBorder.setPosition(1920 * 0.025f, 1080 * 0.025f);
 }
 
 void Minimap::reset() {
+    minimapView.setSize(960, 590);
     minimapView.setViewport(FloatRect(0.75f, 0.05f, 0.2f, 0.2f));
     minimapBorder.setSize(Vector2f(1920 * 0.2f, 1080 * 0.2f));
     minimapBorder.setPosition(1920 * 0.75f, 1080 * 0.05f);
@@ -33,7 +35,7 @@ void Minimap::reset() {
 
 void Minimap::setcenter(float x, float y)
 {
-    const Vector2f mapSize(16384.0f, 9218.0f);
+    const Vector2f mapSize(1920.0f, 1080.0f);
     Vector2f viewSize = minimapView.getSize();
 
     Vector2f desiredCenter(x, y);
