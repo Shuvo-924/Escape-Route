@@ -1,11 +1,19 @@
 #include "SignalControl.h"
+#include "SpeedControl.h"
+
+vector<Vector2f> Signal::dir;
+vector<Vector2f> Signal::pos;
+vector<Vector2f> Signal::points;
+vector<vector<bool>> Signal::stop;
+vector<vector<vector<Vector2f>>> Signal::lightPos;
+
 
 void Signal::initvar()
 {
 	dir = { {0,-1}, {-1,0}, {0,1}, {1,0} };
 	height = 5.f;
 	width = 14.f;
-    pos = { {-width / 2.f, 0}, {0, -width / 2.f}, {-width / 2.f, -height}, {-height, -width / 2.f} };
+    pos = { {-width / 2.f, -height}, {-height, -width / 2.f}, {-width / 2.f, 0},{0, -width / 2.f} };
 	ifstream read("intersections.txt");
 	float x, y;
 	while (read >> x >> y) {
@@ -19,60 +27,70 @@ void Signal::initvar()
         cycle[k].restart();
         for (int i = 0;i < 4;i+=2) {
             for (int j = 0;j < 3;j++) {
-                lightPos[k][i].push_back({ (points[k] + pos[i] + Vector2f(dir[i].x * 20.f, dir[i].y * 20.f)).x + (width / 6.f) + (width / 3.f) * j, (points[k] + pos[i] + Vector2f(dir[i].x * 20.f, dir[i].y * 20.f)).y + height / 2.f });
+                lightPos[k][i].push_back({ (points[k] + pos[i] + Vector2f(dir[i].x * 15.f, dir[i].y * 15.f)).x + (width / 6.f) + (width / 3.f) * j, (points[k] + pos[i] + Vector2f(dir[i].x * 15.f, dir[i].y * 15.f)).y + height / 2.f });
             }
         } 
         for (int i = 1;i < 4;i += 2) {
             for (int j = 0;j < 3;j++) {
-                lightPos[k][i].push_back({ (points[k] + pos[i] + Vector2f(dir[i].x * 20.f, dir[i].y * 20.f)).x + height / 2.f, (points[k] + pos[i] + Vector2f(dir[i].x * 20.f, dir[i].y * 20.f)).y + (width / 6.f) + (width / 3.f) * j });
+                lightPos[k][i].push_back({ (points[k] + pos[i] + Vector2f(dir[i].x * 15.f, dir[i].y * 15.f)).x + height / 2.f, (points[k] + pos[i] + Vector2f(dir[i].x * 15.f, dir[i].y * 15.f)).y + (width / 6.f) + (width / 3.f) * j });
             }
         }
     }
-    for (int i = 0;i < 4;i++) {
-        node* newnode = new node();
-        newnode->val = i;
-        newnode->next = nullptr;
-        if (cycleVar == nullptr) {
-            cycleVar = newnode;
-        }   
-        else {
-            node* curr = cycleVar;
-            while (curr->next != NULL) {
-                curr = curr->next;
+    cycleVar.resize(points.size());
+    current.resize(points.size());
+    cycleVar.assign(cycleVar.size(), nullptr);
+    current.assign(cycleVar.size(), nullptr);
+    for (int k = 0;k < points.size();k++) {
+        for (int i = 0;i < 4;i++) {
+            node* newnode = new node();
+            newnode->val = i;
+            newnode->next = nullptr;
+            if (cycleVar[k] == nullptr) {
+                cycleVar[k] = newnode;
             }
-            if (newnode->val == 3) newnode->next = cycleVar;
-            curr->next = newnode;
+            else {
+                node* curr = cycleVar[k];
+                while (curr->next != nullptr) {
+                    curr = curr->next;
+                }
+                if (newnode->val == 3) newnode->next = cycleVar[k];
+                curr->next = newnode;
+            }
         }
+        current[k] = cycleVar[k];
+        while (rand() % 2 == 0) current[k] = current[k]->next;
     }
-    current = cycleVar;
     clr.resize(4);
     clr.assign(4, vector<Color>(3,{ Color::Green }));
-    
+    stop.resize(points.size());
+    stop.assign(stop.size(), vector<bool>(4, false));
 }
 
-Signal::Signal() : cycleVar(nullptr), current(nullptr)
+Signal::Signal()
 {
 	initvar();
 }
 
 Signal::~Signal()
 {
-    if (cycleVar == nullptr) return;
-    node* tail = cycleVar;
-    while (tail->next != cycleVar) {
-        tail = tail->next;
-    }
-    tail->next = nullptr; 
+    for (int k = 0;k < cycleVar.size();k++) {
+        if (cycleVar[k] == nullptr) return;
+        node* tail = cycleVar[k];
+        while (tail->next != cycleVar[k]) {
+            tail = tail->next;
+        }
+        tail->next = nullptr;
 
-    node* curr = cycleVar;
-    while (curr != nullptr) {
-        node* temp = curr;
-        curr = curr->next;
-        delete temp;
-    }
+        node* curr = cycleVar[k];
+        while (curr != nullptr) {
+            node* temp = curr;
+            curr = curr->next;
+            delete temp;
+        }
 
-    cycleVar = nullptr;
-    current = nullptr;
+        cycleVar[k] = nullptr;
+        current[k] = nullptr;
+    }
 }
 
 void Signal::drawColors(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RENDER_WORLD_SCALE_Y, float cx, float cy, Color color)
@@ -119,8 +137,8 @@ void Signal::drawsignals(RenderWindow& window, double RENDER_WORLD_SCALE_X, doub
         FloatRect signalBounds(
             (points[k].x - 20.f) * RENDER_WORLD_SCALE_X,
             (points[k].y - 20.f) * RENDER_WORLD_SCALE_Y,
-            40.f * RENDER_WORLD_SCALE_X,
-            40.f * RENDER_WORLD_SCALE_Y
+            45.f * RENDER_WORLD_SCALE_X,
+            45.f * RENDER_WORLD_SCALE_Y
         );
 
         // If the signal's bounding box doesn't intersect with the view, skip drawing it
@@ -128,7 +146,7 @@ void Signal::drawsignals(RenderWindow& window, double RENDER_WORLD_SCALE_X, doub
             continue;
         }
         for (int j = 0;j < 4;j++) {
-            drawHousing(points[k] + pos[j] + Vector2f(dir[j].x * 20.f, dir[j].y * 20.f), (j % 2) ? height : width, (j % 2) ? width : height);
+            drawHousing(points[k] + pos[j] + Vector2f(dir[j].x * 15.f, dir[j].y * 15.f), (j % 2) ? height : width, (j % 2) ? width : height);
         }
         for (int i = 0;i < 4;i += 2) {
             for (int j = 0;j < 3;j++) {
@@ -151,21 +169,26 @@ void Signal::signalctrl(RenderWindow& window, double RENDER_WORLD_SCALE_X, doubl
         FloatRect signalBounds(
             (points[k].x - 20.f) * RENDER_WORLD_SCALE_X,
             (points[k].y - 20.f) * RENDER_WORLD_SCALE_Y,
-            40.f * RENDER_WORLD_SCALE_X,
-            40.f * RENDER_WORLD_SCALE_Y
+            45.f * RENDER_WORLD_SCALE_X,
+            45.f * RENDER_WORLD_SCALE_Y
         );
        
-        if (cycle[k].getElapsedTime().asSeconds() >= 15) {
+        if (cycle[k].getElapsedTime() >= wait) {
             for (int i = 0;i < 4;i++) {
-                if (i == current->val) clr[i] = { Color::Red, Color::Transparent, Color::Transparent };
-                else clr[i] = { Color::Transparent, Color::Transparent, Color::Green };
+                if (i == current[k]->val) 
+                    stop[k][i] = true;
+                else {
+                    stop[k][i] = false;
+                }
             }
-            current = current->next;
+            current[k] = current[k]->next;
             cycle[k].restart();
         }
         if (!viewBounds.intersects(signalBounds)) continue;
         for (int i = 0;i < 4;i++) {
-            for (int j = 0;j < 3;j++) {
+            if (stop[k][i]) clr[i] = { Color::Red, Color::Transparent, Color::Transparent };
+            else clr[i] = { Color::Transparent, Color::Transparent, Color::Green };
+            for (int j = 0;j < 3;j++) {  
                 drawColors(window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y, lightPos[k][i][j].x, lightPos[k][i][j].y, clr[i][j]);
             }
         }
