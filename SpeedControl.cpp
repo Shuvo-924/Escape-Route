@@ -68,10 +68,10 @@ void getBorders(Sprite& plr, double& speed)
     if (plr.getGlobalBounds().contains(points)) speed = max(0., speed - 0.5);
 }
 
-void speedctrl(Car& car, const vector<Car*>& nearbyCars) {
+void speedctrl(Car& car, const vector<Car*>& nearbyCars, double& RENDER_WORLD_SCALE_X, double& RENDER_WORLD_SCALE_Y) {
     float left = car.body.getGlobalBounds().left + car.body.getGlobalBounds().width * cosf(car.body.getRotation() * pi / 180.f);
     float top = car.body.getGlobalBounds().top + car.body.getGlobalBounds().width * sinf(car.body.getRotation() * pi / 180.f);
-    FloatRect colArea(Vector2f(left, top), car.body.getGlobalBounds().getSize());
+    FloatRect colArea(Vector2f(left, top), Vector2f(car.body.getGlobalBounds().getSize().x * RENDER_WORLD_SCALE_X, car.body.getGlobalBounds().getSize().y * RENDER_WORLD_SCALE_Y));
     bool collision_imminent = false;
 
     for (Car* otherCar : nearbyCars) {
@@ -88,6 +88,7 @@ void speedctrl(Car& car, const vector<Car*>& nearbyCars) {
 
     if (is_signal_red || collision_imminent) {
         car.speed = max(0.0, car.speed - 0.015);
+        if (car.speed < 0.1) car.speed = 0;
     }
     else {
         if (car.speed < 1.5f) {
