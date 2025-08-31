@@ -148,7 +148,6 @@ void Cars::drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RE
 
 	const double pi = 3.14159265358979323846;
 	const float maxDis = 10.0f; 
-	const float curveStart = 30.0f; 
 	View view = window.getView();
 	FloatRect viewBounds(view.getCenter() - view.getSize() / 2.f, view.getSize());
 
@@ -186,7 +185,7 @@ void Cars::drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RE
 
 				if (angleDiff > 180)  angleDiff -= 360;
 				if (angleDiff < -180) angleDiff += 360;
-				car.body.rotate(angleDiff * 0.1f);
+				car.body.rotate(angleDiff * 1.f);
 			}
 		}
 		else {
@@ -200,12 +199,14 @@ void Cars::drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RE
 
 					vector<Vector2f> path = findOrderedCurvePath(startPoint);
 					if (path.size() > 1) {
+						car.speed = max(1.0, car.speed - 0.01);
 						car.isFollowingCurve = true;
 						car.currentCurvePath = path;
 						car.curvePathIndex = 0;
 						break;
 					}
 				}
+				else if (car.speed < 1.5) car.speed = 1.5f;
 			}
 		}
 		vector<Car*> nearbyCars = grid.getNearbyCars(&car);
@@ -262,7 +263,7 @@ void Cars::drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RE
 		}
 
 		car.lastspeed = car.speed;
-		speedctrl(car, nearbyCars); 
+		speedctrl(car, nearbyCars, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y); 
 		float ang = car.body.getRotation();
 		float dx = car.speed * cosf(ang * pi / 180.f);
 		float dy = car.speed * sinf(ang * pi / 180.f);
