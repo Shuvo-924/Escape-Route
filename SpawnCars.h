@@ -19,7 +19,7 @@
 using namespace sf;
 using namespace std;
 
-struct Car { //Struct Car for holding individual Cars Data
+struct Car { // Struct Car for holding individual Cars Data
 	Sprite body;
 	double speed;
 	double lastspeed;
@@ -33,7 +33,14 @@ struct Car { //Struct Car for holding individual Cars Data
 	unordered_set<Vector2f, Vector2fHash> vis;
 	bool isFollowingCurve;
 	vector<Vector2f> currentCurvePath; //To store the ordered path of the current curve
-	size_t curvePathIndex; // To track progress along the path
+	size_t curvePathIndex; //To track progress along the path
+	bool enteredCorrectly = false;
+};
+
+struct Bridge {
+	ConvexShape area;
+	unordered_set<Vector2f, Vector2fHash> borders;
+	unordered_set<Vector2f, Vector2fHash> entryPoints;
 };
 
 class Cars {
@@ -51,6 +58,12 @@ private:
 	//Same as Players car
 	SoundBuffer brakeBuffer;
 	SoundBuffer hornBuffer;
+	vector<Bridge> bridges;
+	const Bridge* currentBridge = nullptr;
+	bool enteredCorrectly = false;
+	vector<vector<Vector2f>> bridgeArea;
+	unordered_set<Vector2f, Vector2fHash> BridgePoints;
+	unordered_set<Vector2f, Vector2fHash> Gates;
 
 	unsigned int plr_id;
 	double scaleX = 29335.0f / 1920.0f;
@@ -66,6 +79,8 @@ public:
 	void AddCars(); //Function to add new Cars data
 	void Spawn(); //Function to spawn the cars onto the Map
 	void drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RENDER_WORLD_SCALE_Y, Sprite& plr, double& spd); //Function to control the cars
+	vector<Bridge> getBridges();
+	void maskcars(RenderWindow& window, Car& car);
 };
 
 #endif
