@@ -10,6 +10,27 @@ struct Vector2fHash {
 	}
 };
 
+inline bool isPointInsideConvexShape(const Vector2f& point, const ConvexShape& shape)
+{
+	size_t numPoints = shape.getPointCount();
+	const Transform& transform = shape.getTransform();
+
+	bool isInside = false;
+	for (size_t i = 0, j = numPoints - 1; i < numPoints; j = i++)
+	{
+		Vector2f p1 = transform.transformPoint(shape.getPoint(i));
+		Vector2f p2 = transform.transformPoint(shape.getPoint(j));
+
+		if (((p1.y > point.y) != (p2.y > point.y)) &&
+			(point.x < (p2.x - p1.x) * (point.y - p1.y) / (p2.y - p1.y) + p1.x))
+		{
+			isInside = !isInside;
+		}
+	}
+
+	return isInside;
+}
+
 //std::vector<sf::Vector2f> generateSmoothTurn(
 //    const sf::Vector2f& p_before,
 //    const sf::Vector2f& p_corner,
@@ -33,7 +54,7 @@ struct Vector2fHash {
 //    dir_in /= distance_in;
 //    dir_out /= distance_out;
 //
-//    // 4. Define the four points for the Cubic Bézier curve.
+//    // 4. Define the four points for the Cubic BÃ©zier curve.
 //    // P0: Start of the curve (on the incoming line).
 //    sf::Vector2f P0 = p_corner - dir_in * curve_distance;
 //    // P1: First control point (the corner itself). This makes the curve start smoothly.
@@ -43,7 +64,7 @@ struct Vector2fHash {
 //    // P3: End of the curve (on the outgoing line).
 //    sf::Vector2f P3 = p_corner + dir_out * curve_distance;
 //
-//    // 5. Generate the points along the curve using the Bézier formula.
+//    // 5. Generate the points along the curve using the BÃ©zier formula.
 //    // B(t) = (1-t)^3 * P0 + 3(1-t)^2 * t * P1 + 3(1-t) * t^2 * P2 + t^3 * P3
 //    for (int i = 0; i <= num_segments; ++i)
 //    {
