@@ -5,7 +5,6 @@
 #include<SFML/System.hpp>
 #include<SFML/Audio.hpp>
 #include<SFML/Window.hpp>
-#include<SFML/OpenGL.hpp>
 #include<memory>
 #include<vector>
 #include<string>
@@ -39,6 +38,8 @@ enum GameState {
 	RESTARTING_FADE_OUT,
 	RESTARTING_FADE_IN
 };
+
+struct Bridge;
 
 class Game
 {
@@ -85,9 +86,11 @@ private:
 	Sound playerEngineSound; //To control the Engine sound i.e. volume,playstate,loop etc.
 	Sound playerBrakeSound; //To control the Brake sound
 	
+	vector<Bridge> shapes;
+	const Bridge* currentShape = nullptr;
+	bool entered = false;
 	unordered_set<Vector2f, Vector2fHash> borderArea; //Coordinates of Borders of the Road
 	unordered_map<Vector2f, vector<Vector2f>, Vector2fHash> roadGraph; //Edges for each coordinate
-	unordered_set<Vector2f, Vector2fHash> visited; //To check visited nodes
 	vector<Vector2f> endpoints; //Starting position or Destination points
 	vector<Vector2f> shortestPath; //To store the Shortest Path data
 	const int TILE_SIZE = 512; //Size of each sliced image of the Large 29335x16504 Map
@@ -121,6 +124,7 @@ private:
 	bool loadRoadGraph(const string& filename); //Load Graph data from file instead of Calculating
 	void prompt(); //For prompt screen to Input Start and End
 	void playing(); //For playing screen
+	void renderCarWithMasking();
 
 public:
 	Game(); //Game class Constructor which is called when a (Game x) object is created
