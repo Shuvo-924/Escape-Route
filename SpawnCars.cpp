@@ -1,3 +1,4 @@
+#include<SFML/OpenGL.hpp>
 #include "SpawnCars.h"
 #include "SpeedControl.h"
 
@@ -38,6 +39,48 @@ void Cars::initVar()
 		allCurvePoints.insert({ x, y });
 	}
 	allCurvesFile.close();
+	ifstream bridgepoints("OverBridgeArea.txt"); while (bridgepoints >> x >> y) { BridgePoints.insert({ x, y }); } bridgepoints.close();
+	ifstream bridgeCorners("ShapeStart.txt");
+	while (bridgeCorners >> x >> y) {
+		Vector2f start = { x, y };
+		vector<Vector2f> currShape;
+		currShape.push_back(start);
+		unordered_set<Vector2f, Vector2fHash> vis;
+		vector<Vector2f> dir = { {1,0},{0,1},{-1,0},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1} };
+		Vector2f curr = start;
+		Vector2f next = curr + dir[0];
+		vis.insert(start);
+		while (next != start) {
+			bool foundNextPoint = false;
+			for (int i = 0;i < 8;i++) {
+				next = curr + dir[i];
+				if (BridgePoints.count(next) && !vis.count(next)) {
+					vis.insert(next);
+					currShape.push_back(next);
+					curr = curr + dir[i];
+					foundNextPoint = true; // We found the next point, break the inner loop
+					break;
+				}
+			}
+			if (!foundNextPoint) break;
+		}
+		bridgeArea.push_back(currShape);
+	}
+	bridgeCorners.close();
+	ifstream enter("EntryPoints.txt"); while (enter >> x >> y) { Gates.insert({ x, y }); } enter.close();
+	for (vector<Vector2f>& points : bridgeArea) {
+		ConvexShape sp;
+		unordered_set<Vector2f, Vector2fHash> entry;
+		unordered_set<Vector2f, Vector2fHash> borders;
+		sp.setPointCount(points.size());
+		for (size_t i = 0; i < points.size(); ++i) {
+			Vector2f worldPoint = Vector2f(points[i].x * 29335.f / 1920.f, points[i].y * 16504.f / 1080.f);
+			sp.setPoint(i, worldPoint);
+			borders.insert(worldPoint);
+			if (Gates.count(points[i])) entry.insert(worldPoint);
+		}
+		bridges.push_back({ sp, borders, entry });
+	}
 }
 
 vector<Vector2f> Cars::findOrderedCurvePath(const Vector2f& startNode)
@@ -131,6 +174,75 @@ void Cars::Spawn()
 	bodies.clear();
 }
 
+void Cars::maskcars(RenderWindow& window,Car& car) {
+	bool isOnBridge = false;
+
+	const Transform& carTransform =car.body.getTransform();
+	FloatRect carBounds = car.body.getLocalBounds(); // Use local bounds before transformation
+
+	// Define the points on the car we want to check (in its own local space)
+	vector<Vector2f> checkPoints;
+	checkPoints.push_back({ carBounds.width, carBounds.height / 2.f }); // Middle of the front bumper
+	checkPoints.push_back({ 0.f, carBounds.height / 2.f });             // Middle of the rear bumper
+	checkPoints.push_back({ carBounds.width / 2.f, 0.f });              // Top-middle of the roof
+	checkPoints.push_back({ carBounds.width / 2.f, carBounds.height }); // Bottom-middle of the chassis
+
+	// Convert these local points to their current world positions
+	vector<Vector2f> worldCheckPoints;
+	for (const auto& p : checkPoints) {
+		worldCheckPoints.push_back(carTransform.transformPoint(p));
+	}
+
+	for (const auto& curr : bridges)
+	{
+		bool isAnyPointInside = false;
+		// Check if ANY of our car's points are inside the bridge area.
+		for (const auto& point : worldCheckPoints) {
+			if (isPointInsideConvexShape(point, curr.area)) {
+				isAnyPointInside = true;
+				isOnBridge = true;
+				currentBridge = &curr;
+				break; // Found one point inside, no need to check others
+			}
+		}
+
+		if (isAnyPointInside)
+		{
+			for (const auto& entryPoint : curr.entryPoints)
+			{
+				if (car.body.getGlobalBounds().contains(entryPoint)) {
+					car.enteredCorrectly = true;
+					break;
+				}
+			}
+			if (car.enteredCorrectly) break;
+		}
+	}
+	if (!isOnBridge) car.enteredCorrectly = false;
+	// RENDER DECISION PER-CAR
+	if (car.enteredCorrectly || !isOnBridge)
+	{
+		// CASE A: Car is not on a bridge OR it entered correctly.
+		// It should appear OVER the bridge. Just draw it normally.
+		window.draw(car.body);
+	}
+	else
+	{
+		glEnable(GL_STENCIL_TEST);
+		glClear(GL_STENCIL_BUFFER_BIT);
+		glStencilFunc(GL_ALWAYS, 1, 0xFF);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+		glStencilMask(0xFF);
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // Don't draw the shape to the screen
+		window.draw(currentBridge->area);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); // Re-enable color drawing
+		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+		glStencilMask(0x00); // Don't write to the stencil buffer anymore
+		window.draw(car.body);
+		glDisable(GL_STENCIL_TEST);
+	}
+}
+
 void Cars::drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RENDER_WORLD_SCALE_Y, Sprite& plr, double& spd) {
 	grid.clear();
 	for (auto it = moving.begin();it != moving.end();it++) {
@@ -195,7 +307,7 @@ void Cars::drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RE
 			for (const auto& startPoint : curveStartPoints) {
 				float dx = startPoint.x - carPosMapCoords.x;
 				float dy = startPoint.y - carPosMapCoords.y;
-				if (dx * dx + dy * dy < (10.f * 10.f)) {
+				if (dx * dx + dy * dy < (15.f * 15.f)) {
 
 					vector<Vector2f> path = findOrderedCurvePath(startPoint);
 					if (path.size() > 1) {
@@ -270,8 +382,13 @@ void Cars::drawCars(RenderWindow& window, double RENDER_WORLD_SCALE_X, double RE
 		car.body.move(dx, dy);
 
 		if (viewBounds.intersects(car.body.getGlobalBounds())) {
-			window.draw(car.body);
+			maskcars(window, car);
 		}
 		if (shouldIncrement) it++;
 	}
+}
+
+vector<Bridge> Cars::getBridges()
+{
+	return bridges;
 }
