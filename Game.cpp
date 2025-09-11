@@ -1,3 +1,4 @@
+#include<SFML/OpenGL.hpp>
 #include "Game.h"
 #include "SignalControl.h"
 
@@ -6,7 +7,12 @@ void Game::initMinimal()
 	window = nullptr;
 	map = nullptr;
 	desktopMode = VideoMode::getDesktopMode();
-	window = new RenderWindow(this->desktopMode, "Escape Route", Style::Close | Style::Titlebar);
+	ContextSettings settings;
+	settings.depthBits = 24;      // Request a 24-bit depth buffer
+	settings.stencilBits = 8;     // Request an 8-bit stencil buffer
+	settings.antialiasingLevel = 4; // Optional, but nice to have
+
+	window = new RenderWindow(this->desktopMode, "Escape Route", Style::Close | Style::Titlebar, settings);
 	window->setPosition(Vector2i(-15, 0));
 	icon.loadFromFile("Icon.png");
 	window->setIcon(icon.getSize().x, icon.getSize().y, icon.getPixelsPtr());
@@ -98,9 +104,9 @@ void Game::loadAssetsAndData()
 	spawnDelay.restart();
 
 	float x, y;
+	shapes = RandomCars->getBridges();
+
 	ifstream startFile("Nodes.txt"); while (startFile >> x >> y) { endpoints.push_back({ x, y }); } startFile.close();
-	ifstream read("turn.txt");
-	while (read >> x >> y) borderArea.insert({ x, y });
 
 	fadeShape.setSize(Vector2f(static_cast<float>(desktopMode.width), static_cast<float>(desktopMode.height)));
 	fadeShape.setFillColor(Color(0, 0, 0, 0));
@@ -245,15 +251,18 @@ void Game::prompt()
 
 void Game::playing()
 {
+	this->window->clear(Color::Green);
 	this->window->setView(view);
 	if (this->map) {
 		this->window->draw(*map);
 	}
-	this->window->draw(this->plr);
+
+	renderCarWithMasking();
+	
 	RandomCars->drawCars(*window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y, plr, speed);
 	signals->drawsignals(*window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y);
 	signals->signalctrl(*window, RENDER_WORLD_SCALE_X, RENDER_WORLD_SCALE_Y);
-	
+
 	window->setView(minimap.minimapView);
 	RectangleShape b(Vector2f(1920.f, 1080.f));
 	b.setFillColor(Color(200, 200, 200, 230));
@@ -265,6 +274,88 @@ void Game::playing()
 	window->setView(window->getDefaultView());
 	window->draw(minimap.minimapBorder);
 	if (expand) window->draw(cancelbtn);
+	fadeImg.update(*window);
+	fadeDraw.setTexture(fadeImg);
+}
+
+void Game::renderCarWithMasking()
+{
+	bool isOnBridge = false;
+
+	const Transform& carTransform = plr.getTransform();
+	FloatRect carBounds = plr.getLocalBounds(); // Use local bounds before transformation
+
+	// Define the points on the car we want to check (in its own local space)
+	vector<Vector2f> checkPoints;
+	checkPoints.push_back({ carBounds.width, carBounds.height / 2.f }); // Middle of the front bumper
+	checkPoints.push_back({ 0.f, carBounds.height / 2.f });             // Middle of the rear bumper
+	checkPoints.push_back({ carBounds.width / 2.f, 0.f });              // Top-middle of the roof
+	checkPoints.push_back({ carBounds.width / 2.f, carBounds.height }); // Bottom-middle of the chassis
+
+	// Convert these local points to their current world positions
+	vector<Vector2f> worldCheckPoints;
+	for (const auto& p : checkPoints) {
+		worldCheckPoints.push_back(carTransform.transformPoint(p));
+	}
+
+	for (const auto& curr : shapes)
+	{
+		bool isAnyPointInside = false;
+		// Check if ANY of our car's points are inside the bridge area.
+		for (const auto& point : worldCheckPoints) {
+			if (isPointInsideConvexShape(point, curr.area)) {
+				isAnyPointInside = true;
+				isOnBridge = true;
+				currentShape = &curr;
+				break; // Found one point inside, no need to check others
+			}
+		}
+
+		if (isAnyPointInside)
+		{
+			for (const auto& entryPoint : curr.entryPoints)
+			{
+				if (plr.getGlobalBounds().contains(entryPoint)) {
+					entered = true;
+					break;
+				}
+			}
+			if (entered) break;
+		}
+	}
+	if(!isOnBridge) entered = false;
+	// RENDER DECISION PER-CAR
+	if (entered || !isOnBridge)
+	{
+		// CASE A: Car is not on a bridge OR it entered correctly.
+		// It should appear OVER the bridge. Just draw it normally.
+		this->window->draw(this->plr);
+	}
+	else
+	{
+		glEnable(GL_STENCIL_TEST);
+
+		// 2. Clear the stencil buffer ONLY for this operation
+		glClear(GL_STENCIL_BUFFER_BIT);
+
+		// 3. Draw the bridge shape to the stencil buffer to create the mask
+		glStencilFunc(GL_ALWAYS, 1, 0xFF);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+		glStencilMask(0xFF);
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE); // Don't draw the shape to the screen
+		this->window->draw(currentShape->area);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); // Re-enable color drawing
+
+		// 4. Set the stencil function to draw the car ONLY where the stencil is NOT 1
+		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+		glStencilMask(0x00); // Don't write to the stencil buffer anymore
+
+		// 5. Draw the car. It will be "punched out" by the mask.
+		this->window->draw(this->plr);
+
+		// 6. Disable the stencil test to clean up the state for the next car.
+		glDisable(GL_STENCIL_TEST);
+	}
 }
 
 //Constructors & Destructors
@@ -339,8 +430,6 @@ void Game::pollEvents()
 			if (this->ev.key.code == Keyboard::R && currentState != PROMPT) {
 				reset();
 			}
-			if (this->ev.key.code == Keyboard::E)
-				cout << (plr.getPosition().y - 96.f) - (Signal::points[2] + Signal::pos[2]).y * 16504.f / 1080.f << " " << plr.getPosition().x - (Signal::points[2] + Signal::pos[2]).x * 29335.f / 1920.f << '\n';
 			break;
 		case Event::TextEntered:
 			if (currentState == PROMPT) {
